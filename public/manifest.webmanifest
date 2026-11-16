@@ -1,0 +1,21 @@
+{
+  "id": "/",
+  "name": "TimePlan - Organiza tu tiempo",
+  "short_name": "TimePlan",
+  "description": "Organiza tus tareas, calendario y sesiones de enfoque.",
+  "lang": "es-CL",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7f6fb",
+  "theme_color": "#6c4be0",
+  "icons": [
+    {
+      "src": "/timeplan-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
