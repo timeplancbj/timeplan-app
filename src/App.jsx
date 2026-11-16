@@ -65,16 +65,17 @@ export default function TimePlanPrototype() {
   useEffect(() => { localStorage.setItem(STORAGE.sessions, JSON.stringify(sessions)); }, [sessions]);
   useEffect(() => {
     if (!running) return;
-    const timer = window.setInterval(() => setSeconds(s => {
-      if (s <= 1) {
-        setRunning(false);
-        setSessions(old => [...old, { id: Date.now(), date: today(), minutes: duration, completedAt: new Date().toISOString() }]);
-        return duration * 60;
-      }
-      return s - 1;
-    }), 1000);
+    const timer = window.setInterval(() => setSeconds(s => Math.max(0, s - 1)), 1000);
     return () => window.clearInterval(timer);
-  }, [running, duration]);
+  }, [running]);
+
+  useEffect(() => {
+    if (running && seconds === 0) {
+      setRunning(false);
+      setSessions(old => [...old, { id: Date.now(), date: today(), minutes: duration, completedAt: new Date().toISOString() }]);
+      setSeconds(duration * 60);
+    }
+  }, [running, seconds, duration]);
 
   const todayTasks = tasks.filter(t => t.date === today());
   const completedToday = todayTasks.filter(t => t.done).length;
