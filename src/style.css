@@ -258,3 +258,32 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+
+/* Authentication and cloud account */
+.auth-page { min-height:100dvh; padding:24px; display:grid; place-items:center; background:radial-gradient(circle at 15% 10%,#eee9ff 0,transparent 38%),#f7f6fb; }
+.auth-card { width:min(100%,430px); padding:38px; border:1px solid #e9e5f2; border-radius:22px; background:#fff; box-shadow:0 22px 70px #29204b12; }
+.auth-logo { width:48px;height:48px;margin:0 auto 15px;border-radius:15px;display:grid;place-items:center;background:#6c4be0;color:white;font-size:29px; }
+.auth-eyebrow { color:#8c7ad0;font-size:9px;font-weight:800;letter-spacing:1.5px;text-align:center; }
+.auth-card h1 { margin:5px 0 25px;text-align:center;color:#27213e;font:800 24px Manrope,sans-serif; }
+.auth-card h2 { margin:0;color:#27213e;font:800 21px Manrope,sans-serif; }
+.auth-description { margin:8px 0 23px;color:#89839b;font-size:12px;line-height:1.6; }
+.auth-label { display:flex;flex-direction:column;gap:7px;margin:0 0 15px;color:#625c75;font-size:11px;font-weight:700; }
+.auth-label input { width:100%;height:44px;padding:0 12px;border:1px solid #e5e1ef;border-radius:10px;outline:none;color:#302a45;font-size:13px; }
+.auth-label input:focus { border-color:#8a72e8;box-shadow:0 0 0 3px #6c4be018; }
+.auth-submit,.auth-google { width:100%;height:45px;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer; }
+.auth-submit { margin-top:4px;border:0;background:#6c4be0;color:#fff; }
+.auth-submit:disabled,.auth-google:disabled { opacity:.6;cursor:wait; }
+.auth-google { margin-top:12px;border:1px solid #e6e2ef;background:white;color:#4c465f; }
+.auth-google b { margin-right:8px;color:#4285f4;font-size:15px; }
+.auth-link { width:100%;margin-top:14px;border:0;background:transparent;color:#7657d8;font-size:11px;font-weight:700;cursor:pointer; }
+.auth-switch { margin-top:22px;padding-top:18px;border-top:1px solid #f0edf5;color:#8b859d;text-align:center;font-size:11px; }
+.auth-switch button { border:0;background:none;color:#6c4be0;font-size:11px;font-weight:800;cursor:pointer; }
+.auth-error,.auth-message { margin:0 0 13px;padding:10px 12px;border-radius:9px;font-size:11px;line-height:1.5; }
+.auth-error { background:#fff0f1;color:#b5364b; }
+.auth-message { background:#edf9f4;color:#167653; }
+.auth-loading { min-height:100dvh;display:grid;place-items:center;background:#f7f6fb;color:#6c4be0;font:700 14px Manrope,sans-serif; }
+.account-strip { display:flex;align-items:center;justify-content:flex-end;gap:12px;margin:-9px 0 16px;color:#8d879e;font-size:10px; }
+.account-strip button { border:0;background:transparent;color:#6c4be0;font-size:10px;font-weight:800;cursor:pointer; }
+.sync-warning { margin-bottom:14px;padding:10px 12px;border:1px solid #f0d9a8;border-radius:9px;background:#fff8e9;color:#8a641d;font-size:11px; }
+@media(max-width:600px) { .auth-page { padding:16px; }.auth-card { padding:28px 22px; }.account-strip { justify-content:space-between;flex-wrap:wrap; } }
