@@ -1,4 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 import {
   Activity, AlarmClock, ArrowLeft, ArrowRight, BarChart3, CalendarDays,
   Check, CheckCircle2, ChevronLeft, ChevronRight, Circle, Clock3, Flame,
@@ -47,9 +52,11 @@ function formatLong(date) {
 function sameDay(a,b) { return a === b; }
 function category(id) { return CATEGORIES.find(c => c.id === id) || CATEGORIES[0]; }
 
-export default function TimePlanPrototype() {
-  const [tasks, setTasks] = useState(() => readStorage(STORAGE.tasks, null) || makeInitialTasks());
-  const [sessions, setSessions] = useState(() => readStorage(STORAGE.sessions, []));
+function TimePlanWorkspace({ user, supabase, onSignOut }) {
+  const [tasks, setTasks] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [dataReady, setDataReady] = useState(false);
+  const [syncError, setSyncError] = useState("");
   const [tab, setTab] = useState("home");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
@@ -61,8 +68,84 @@ export default function TimePlanPrototype() {
   const [seconds, setSeconds] = useState(25 * 60);
   const [running, setRunning] = useState(false);
 
-  useEffect(() => { localStorage.setItem(STORAGE.tasks, JSON.stringify(tasks)); }, [tasks]);
-  useEffect(() => { localStorage.setItem(STORAGE.sessions, JSON.stringify(sessions)); }, [sessions]);
+  useEffect(() => {
+    let active = true;
+    async function loadUserData() {
+      setDataReady(false);
+      setSyncError("");
+      const [taskResult, sessionResult] = await Promise.all([
+        supabase.from("tasks").select("*").eq("user_id", user.id),
+        supabase.from("focus_sessions").select("*").eq("user_id", user.id)
+      ]);
+      if (taskResult.error || sessionResult.error) {
+        if (active) setSyncError("No se pudieron cargar tus datos. Comprueba tu conexión e inténtalo de nuevo.");
+        if (active) setDataReady(true);
+        return;
+      }
+      let remoteTasks = taskResult.data || [];
+      let remoteSessions = sessionResult.data || [];
+      const importedKey = "timeplan.legacyImported.v1";
+      if (!localStorage.getItem(importedKey)) {
+        const legacyTasks = readStorage(STORAGE.tasks, []);
+        const legacySessions = readStorage(STORAGE.sessions, []);
+        if (remoteTasks.length === 0 && remoteSessions.length === 0 && (legacyTasks.length || legacySessions.length)) {
+          const taskRows = legacyTasks.map(t => ({
+            user_id: user.id, id: String(t.id), title: t.title, category: t.category,
+            date: t.date, time: t.time || null, done: !!t.done, completed_at: t.completedAt || null
+          }));
+          const sessionRows = legacySessions.map(s => ({
+            user_id: user.id, id: String(s.id), date: s.date, minutes: s.minutes, completed_at: s.completedAt || null
+          }));
+          const writes = await Promise.all([
+            taskRows.length ? supabase.from("tasks").upsert(taskRows, { onConflict: "user_id,id" }) : Promise.resolve({error:null}),
+            sessionRows.length ? supabase.from("focus_sessions").upsert(sessionRows, { onConflict: "user_id,id" }) : Promise.resolve({error:null})
+          ]);
+          if (!writes.some(w => w.error)) {
+            remoteTasks = taskRows;
+            remoteSessions = sessionRows;
+          } else {
+            setSyncError("No se pudieron importar los datos anteriores; tus datos locales siguen intactos.");
+          }
+        }
+        localStorage.setItem(importedKey, "true");
+      }
+      if (active) {
+        setTasks(remoteTasks.map(t => ({
+          id: t.id, title: t.title, category: t.category, date: t.date,
+          time: t.time || "", done: !!t.done, completedAt: t.completed_at
+        })));
+        setSessions(remoteSessions.map(s => ({
+          id: s.id, date: s.date, minutes: s.minutes, completedAt: s.completed_at
+        })));
+        setDataReady(true);
+      }
+    }
+    loadUserData();
+    return () => { active = false; };
+  }, [user.id, supabase]);
+
+  useEffect(() => {
+    if (!dataReady) return;
+    localStorage.setItem(STORAGE.tasks, JSON.stringify(tasks));
+    const rows = tasks.map(t => ({
+      user_id: user.id, id: String(t.id), title: t.title, category: t.category,
+      date: t.date, time: t.time || null, done: !!t.done, completed_at: t.completedAt || null
+    }));
+    if (rows.length) supabase.from("tasks").upsert(rows, { onConflict: "user_id,id" }).then(({error}) => {
+      if (error) setSyncError("No se pudieron sincronizar algunos cambios. Revisa tu conexión.");
+    });
+  }, [tasks, dataReady, user.id, supabase]);
+
+  useEffect(() => {
+    if (!dataReady) return;
+    localStorage.setItem(STORAGE.sessions, JSON.stringify(sessions));
+    const rows = sessions.map(s => ({
+      user_id: user.id, id: String(s.id), date: s.date, minutes: s.minutes, completed_at: s.completedAt || null
+    }));
+    if (rows.length) supabase.from("focus_sessions").upsert(rows, { onConflict: "user_id,id" }).then(({error}) => {
+      if (error) setSyncError("No se pudieron sincronizar tus sesiones.");
+    });
+  }, [sessions, dataReady, user.id, supabase]);
   useEffect(() => {
     if (!running) return;
     const timer = window.setInterval(() => setSeconds(s => Math.max(0, s - 1)), 1000);
@@ -96,13 +179,19 @@ export default function TimePlanPrototype() {
     setTasks(old => old.map(t => t.id === id ? { ...t, done: !t.done, completedAt: !t.done ? new Date().toISOString() : null } : t));
   }
   function deleteTask(id) {
-    if (window.confirm("¿Eliminar esta tarea?")) setTasks(old => old.filter(t => t.id !== id));
+    if (window.confirm("¿Eliminar esta tarea?")) {
+      supabase.from("tasks").delete().eq("user_id", user.id).eq("id", String(id)).then(({error}) => {
+        if (error) setSyncError("No se pudo eliminar la tarea de la nube.");
+      });
+      setTasks(old => old.filter(t => t.id !== id));
+    }
   }
   function changeTab(id) { setTab(id); setMenuOpen(false); }
   function resetTimer() { setRunning(false); setSeconds(duration * 60); }
   function changeDuration(value) { const next = Number(value); setDuration(next); setSeconds(next * 60); setRunning(false); }
 
   const title = NAV.find(n => n.id === tab)?.label || "TimePlan";
+  if (!dataReady) return <div className="auth-loading">Cargando tu espacio TimePlan…</div>;
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark"><Clock3 size={20}/></span><span>Time<span>Plan</span></span></div>
@@ -121,6 +210,7 @@ export default function TimePlanPrototype() {
       </header>
       {menuOpen && <div className="mobile-menu">{NAV.map(({id,label,icon:Icon}) => <button key={id} onClick={() => changeTab(id)}><Icon size={17}/>{label}</button>)}</div>}
       <main className="content">
+        <div className="account-strip"><span>{user.email}</span><button onClick={onSignOut}>Cerrar sesión</button></div>{syncError && <div className="sync-warning" role="status">{syncError}</div>}
         {tab === "home" && <Dashboard tasks={tasks} todayTasks={todayTasks} completedToday={completedToday} pendingToday={pendingToday} nextTask={nextTask} sessions={sessions} onNavigate={changeTab} onToggle={toggleTask} onAdd={() => setEditor({})} onEdit={t => setEditor(t)}/>}
         {tab === "tasks" && <TasksPage tasks={visibleTasks} query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} onAdd={() => setEditor({})} onToggle={toggleTask} onEdit={t => setEditor(t)} onDelete={deleteTask}/>}
         {tab === "calendar" && <CalendarPage tasks={tasks} month={month} setMonth={setMonth} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onAdd={() => setEditor({ date: selectedDate })} onToggle={toggleTask} onEdit={t => setEditor(t)}/>}
@@ -131,6 +221,71 @@ export default function TimePlanPrototype() {
     <nav className="mobile-nav" aria-label="Navegación inferior">{NAV.map(({id,label,icon:Icon}) => <button key={id} onClick={() => changeTab(id)} className={tab === id ? "mobile-nav-item active" : "mobile-nav-item"}><Icon size={20}/><span>{label}</span></button>)}</nav>
     {editor && <TaskEditor task={editor.id ? editor : null} initialDate={editor.date || today()} onClose={() => setEditor(null)} onSave={saveTask}/>}
   </div>;
+}
+
+
+export default function TimePlanPrototype() {
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [recovery, setRecovery] = useState(() => typeof window !== "undefined" && window.location.hash.includes("type=recovery"));
+  useEffect(() => {
+    if (!supabase) { setLoading(false); return; }
+    supabase.auth.getSession().then(({data}) => {
+      setSession(data.session);
+      setLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      setSession(nextSession);
+      if (event === "PASSWORD_RECOVERY") setRecovery(true);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+  if (!supabase) return <div className="auth-page"><div className="auth-card"><div className="auth-logo">◷</div><h1>TimePlan</h1><p>La conexión con la nube todavía no está configurada.</p><small>Faltan las variables de entorno de Supabase en el despliegue.</small></div></div>;
+  if (loading) return <div className="auth-loading">Preparando TimePlan…</div>;
+  if (recovery) return <AuthScreen supabase={supabase} mode="recovery" onRecoveryDone={() => { setRecovery(false); window.history.replaceState({}, document.title, window.location.pathname); }} />;
+  if (!session) return <AuthScreen supabase={supabase} />;
+  return <TimePlanWorkspace user={session.user} supabase={supabase} onSignOut={() => supabase.auth.signOut()} />;
+}
+
+function AuthScreen({ supabase, mode: initialMode = "login", onRecoveryDone }) {
+  const [mode, setMode] = useState(initialMode);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const recovery = mode === "recovery";
+  const titles = { login: "Bienvenido de nuevo", signup: "Crea tu cuenta", forgot: "Recupera tu contraseña", recovery: "Nueva contraseña" };
+  async function submit(e) {
+    e.preventDefault(); setBusy(true); setError(""); setMessage("");
+    let result;
+    if (mode === "signup") result = await supabase.auth.signUp({ email, password });
+    else if (mode === "login") result = await supabase.auth.signInWithPassword({ email, password });
+    else if (mode === "forgot") result = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    else result = await supabase.auth.updateUser({ password });
+    setBusy(false);
+    if (result.error) setError(result.error.message);
+    else if (mode === "signup") setMessage("Revisa tu correo para confirmar la cuenta y comenzar a usar TimePlan.");
+    else if (mode === "forgot") setMessage("Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.");
+    else if (recovery) { setMessage("Contraseña actualizada correctamente."); onRecoveryDone?.(); }
+  }
+  async function google() {
+    setBusy(true); setError("");
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+    if (oauthError) { setError(oauthError.message); setBusy(false); }
+  }
+  return <div className="auth-page"><section className="auth-card">
+    <div className="auth-logo">◷</div><div className="auth-eyebrow">TU ESPACIO PERSONAL</div><h1>TimePlan</h1><h2>{titles[mode]}</h2>
+    <p className="auth-description">{recovery ? "Elige una contraseña nueva para proteger tu cuenta." : mode === "forgot" ? "Te enviaremos un enlace seguro a tu correo." : "Organiza tus tareas, calendario y sesiones desde cualquier dispositivo."}</p>
+    <form onSubmit={submit}>
+      <label className="auth-label">Correo electrónico<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@correo.com" disabled={recovery}/></label>
+      {mode !== "forgot" && <label className="auth-label">{recovery ? "Nueva contraseña" : "Contraseña"}<input type="password" required minLength={6} autoComplete={recovery ? "new-password" : mode === "signup" ? "new-password" : "current-password"} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Mínimo 6 caracteres"/></label>}
+      {error && <div className="auth-error">{error}</div>}{message && <div className="auth-message">{message}</div>}
+      <button className="auth-submit" disabled={busy}>{busy ? "Un momento…" : recovery ? "Guardar contraseña" : mode === "signup" ? "Crear cuenta" : mode === "forgot" ? "Enviar enlace" : "Iniciar sesión"}</button>
+    </form>
+    {mode === "login" && <><button className="auth-google" onClick={google} disabled={busy}><b>G</b> Continuar con Google</button><button className="auth-link" onClick={()=>{setMode("forgot");setError("");setMessage("");}}>¿Olvidaste tu contraseña?</button></>}
+    {!recovery && <div className="auth-switch">{mode === "login" ? "¿Todavía no tienes cuenta?" : mode === "signup" ? "¿Ya tienes una cuenta?" : "¿Recordaste tu contraseña?"} <button onClick={()=>{setMode(mode === "login" ? "signup" : "login");setError("");setMessage("");}}>{mode === "login" ? "Regístrate" : "Inicia sesión"}</button></div>}
+  </section></div>;
 }
 
 function PageHeading({ eyebrow, title, description, action }) {
